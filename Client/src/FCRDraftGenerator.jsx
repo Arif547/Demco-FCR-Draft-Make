@@ -18,8 +18,9 @@ const FCRDraftGenerator = () => {
     const [savedProjects, setSavedProjects] = useState([]);
     const [currentProject, setCurrentProject] = useState(null);
     const [projectName, setProjectName] = useState('');
+    const [projectYear, setProjectYear] = useState('');
     const searchInputRef = useRef(null);
-    
+
 
     // API endpoints - adjust these to match your backend URL
     const API_BASE = 'http://localhost:5000/api';
@@ -99,6 +100,7 @@ const FCRDraftGenerator = () => {
             setIsSaving(true);
             const projectData = {
                 name: projectName.trim(),
+                Year: projectYear,
                 processedData,
                 copiedBoxes,
                 copyHistory,
@@ -583,6 +585,14 @@ COUNTRY: ${row['Country short code'] || ''}`
                                 placeholder="Enter project name..."
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
                             />
+                            <input
+                                type="number"
+                                value={projectYear}
+                                onChange={(e) => setProjectYear(e.target.value)}
+                                placeholder="Enter project Year..."
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                            />
+
                         </div>
 
                         {/* Save/Update Button */}

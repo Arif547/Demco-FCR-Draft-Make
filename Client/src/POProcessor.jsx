@@ -11,7 +11,7 @@ const TYPE_MIXED = "100% PORCELAIN TABLEWARE AND 80% PORCELAIN, 20% RECYCLED PRE
 const TYPE_RECYCLED = "80% PORCELAIN, 20% RECYCLED PRE-CONSUMER PORCELAIN";
 const TYPE_NORMAL = "100% PORCELAIN TABLEWARE";
 
-const POProcessor = () => {
+const PoProcessor = () => {
     const [poData, setPOData] = useState(null);
     const [recycledPOsData, setRecycledPOsData] = useState(null);
     const [processedData, setProcessedData] = useState(null);
@@ -403,4 +403,4 @@ const POProcessor = () => {
     );
 };
 
-export default POProcessor;
+export default PoProcessor;
