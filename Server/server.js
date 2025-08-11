@@ -20,8 +20,10 @@ app.use(cors({
     origin: '*' // Only for development!
 }));
 
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
 
 // MongoDB Connection
 const connectDB = async () => {
@@ -49,6 +51,11 @@ const fcrProjectSchema = new mongoose.Schema({
         type: String,
         maxLength: 500,
         default: ''
+    },
+    year: {
+        type: String,
+        maxLength: 500,
+
     },
     processedData: [{
         id: String,
@@ -333,6 +340,52 @@ app.put('/api/projects/:id', async (req, res) => {
             return res.status(400).json({ error: error.message });
         }
         res.status(500).json({ error: 'Failed to update project' });
+    }
+});
+
+// PUT /api/projects/:projectId/copy-status
+app.put('/api/projects/:projectId/copy-status', async (req, res) => {
+    const { projectId } = req.params;
+    const { boxId, isCopied } = req.body;
+
+    try {
+        // Update the copiedBoxes field in MongoDB
+        const updateQuery = {};
+
+        if (isCopied) {
+            // Set boxId to true
+            updateQuery[`copiedBoxes.${boxId}`] = true;
+        } else {
+            // Remove boxId from copiedBoxes
+            updateQuery = {
+                $unset: { [`copiedBoxes.${boxId}`]: "" },
+                $set: { updatedAt: new Date() }
+            };
+        }
+
+        const project = await Project.findByIdAndUpdate(
+            projectId,
+            isCopied ? {
+                $set: {
+                    [`copiedBoxes.${boxId}`]: true,
+                    updatedAt: new Date()
+                }
+            } : updateQuery,
+            { new: true }
+        );
+
+        if (!project) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+
+        res.json({
+            success: true,
+            copiedBoxes: project.copiedBoxes
+        });
+
+    } catch (error) {
+        console.error('Error updating copy status:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 

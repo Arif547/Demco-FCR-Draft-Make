@@ -13,6 +13,7 @@ const Header = () => {
                     <ul className="menu menu-horizontal px-1">
                         <li><a>Link</a></li>
                         <li><Link to="/FcrDarftMake">FcrDarftMake</Link></li>
+                        <li><Link to="/ProjectsDashboard">/Projects</Link></li>
 
                     </ul>
                 </div>

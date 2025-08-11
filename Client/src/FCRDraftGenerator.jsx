@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Upload, Download, Search, Filter, Copy, Check, X, RotateCcw, Save, Eye, FileText, AlertCircle, CheckCircle, Loader, Database, Cloud } from 'lucide-react';
+import { Upload, Download, Search, X, RotateCcw, Save, Eye, FileText, AlertCircle, CheckCircle, Loader, Database, Copy, Check } from 'lucide-react';
 import Papa from 'papaparse';
 
 const FCRDraftGenerator = () => {
@@ -10,17 +10,14 @@ const FCRDraftGenerator = () => {
     const [copiedBoxes, setCopiedBoxes] = useState({});
     const [searchTerm, setSearchTerm] = useState('');
     const [currentFilter, setCurrentFilter] = useState('all');
-    const [showShortcuts, setShowShortcuts] = useState(true);
     const [lastCopiedBoxId, setLastCopiedBoxId] = useState(null);
-    const [copyHistory, setCopyHistory] = useState([]);
+    const [projectName, setProjectName] = useState('');
+    const [projectYear, setProjectYear] = useState(new Date().getFullYear().toString());
     const [isSaving, setIsSaving] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [savedProjects, setSavedProjects] = useState([]);
     const [currentProject, setCurrentProject] = useState(null);
-    const [projectName, setProjectName] = useState('');
-    const [projectYear, setProjectYear] = useState('');
     const searchInputRef = useRef(null);
-
 
     // API endpoints - adjust these to match your backend URL
     const API_BASE = 'http://localhost:5000/api';
@@ -100,10 +97,9 @@ const FCRDraftGenerator = () => {
             setIsSaving(true);
             const projectData = {
                 name: projectName.trim(),
-                Year: projectYear,
+                year: projectYear,
                 processedData,
                 copiedBoxes,
-                copyHistory,
                 createdAt: new Date(),
                 updatedAt: new Date()
             };
@@ -131,27 +127,6 @@ const FCRDraftGenerator = () => {
         }
     };
 
-    // Load project from MongoDB
-    const loadProject = async (projectId) => {
-        try {
-            setIsLoading(true);
-            const response = await fetch(`${API_BASE}/projects/${projectId}`);
-            if (response.ok) {
-                const project = await response.json();
-                setProcessedData(project.processedData);
-                setCopiedBoxes(project.copiedBoxes || {});
-                setCopyHistory(project.copyHistory || []);
-                setCurrentProject(project);
-                setProjectName(project.name);
-                addLog(`Project "${project.name}" loaded successfully!`, 'success');
-            }
-        } catch (error) {
-            addLog('Failed to load project', 'error');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
     // Update project in MongoDB
     const updateProject = async () => {
         if (!currentProject) {
@@ -164,7 +139,6 @@ const FCRDraftGenerator = () => {
             const updateData = {
                 processedData,
                 copiedBoxes,
-                copyHistory,
                 updatedAt: new Date()
             };
 
@@ -220,9 +194,14 @@ const FCRDraftGenerator = () => {
                             throw new Error(`Missing required columns: ${missingColumns.join(', ')}`);
                         }
 
-                        addLog(`Detected delimiter: '${results.meta.delimiter}'`);
                         addLog(`Successfully loaded ${results.data.length} records`);
                         setInputData(results.data);
+
+                        // Auto-set project name from filename if not already set
+                        if (!projectName) {
+                            const fileName = file.name.replace(/\.[^/.]+$/, "");
+                            setProjectName(fileName);
+                        }
 
                     } catch (error) {
                         addLog(`Error: ${error.message}`, 'error');
@@ -274,7 +253,7 @@ const FCRDraftGenerator = () => {
                     lcContact: row['Lc Contact'] || '',
                     contactDate,
                     countryCode: row['Country short code'] || '',
-                    formattedText: `${row['Description'] || ''}
+                    formattedText: `100% PORCELAIN TABLEWARE
 ORDER NO. : ${row['PO Numbers'] || ''}
 DESCRIPTION OF GOODS. : ${row['Goods'] || ''}
 INVOICE NO. : ${invoiceNo}
@@ -302,11 +281,8 @@ COUNTRY: ${row['Country short code'] || ''}`
     const copyToClipboard = async (boxId, content) => {
         try {
             await navigator.clipboard.writeText(content);
-
             setCopiedBoxes(prev => ({ ...prev, [boxId]: true }));
-            setCopyHistory(prev => [...prev.filter(id => id !== boxId), boxId]);
             setLastCopiedBoxId(boxId);
-
             addLog('Box content copied to clipboard!', 'success');
         } catch (error) {
             addLog('Failed to copy to clipboard', 'error');
@@ -319,8 +295,6 @@ COUNTRY: ${row['Country short code'] || ''}`
             delete updated[boxId];
             return updated;
         });
-
-        setCopyHistory(prev => prev.filter(id => id !== boxId));
 
         if (lastCopiedBoxId === boxId) {
             setLastCopiedBoxId(null);
@@ -340,7 +314,6 @@ COUNTRY: ${row['Country short code'] || ''}`
 
     const resetAllCopied = () => {
         setCopiedBoxes({});
-        setCopyHistory([]);
         setLastCopiedBoxId(null);
         addLog('All copied status has been reset!', 'success');
     };
@@ -353,7 +326,8 @@ COUNTRY: ${row['Country short code'] || ''}`
         // Apply search filter
         if (searchTerm) {
             filtered = filtered.filter(item =>
-                item.invoiceNo.toLowerCase().includes(searchTerm.toLowerCase())
+                item.invoiceNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                item.description.toLowerCase().includes(searchTerm.toLowerCase())
             );
         }
 
@@ -367,100 +341,89 @@ COUNTRY: ${row['Country short code'] || ''}`
         return filtered;
     };
 
-    // Export to DOC with box format
+    // Export to DOC with simple format using Tailwind classes
     const exportToDOC = () => {
         if (!processedData) return;
 
         const filteredData = getFilteredData();
+        const copiedCount = filteredData.filter(item => copiedBoxes[item.id]).length;
 
-        // Create HTML content with proper box formatting
         const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <title>FCR Export - ${new Date().toLocaleDateString()}</title>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 20px; }
-          .fcr-box { 
-            border: 2px solid black; 
-            margin: 20px 0; 
-            padding: 15px; 
-            page-break-inside: avoid;
-            min-height: 200px;
-          }
-          .box-header { 
-            font-weight: bold; 
-            font-size: 16px; 
-            margin-bottom: 10px; 
-            border-bottom: 2px solid black;
-            padding-bottom: 5px;
-          }
-          .box-content { 
-            line-height: 1.6; 
-            white-space: pre-line;
-            font-size: 14px;
-          }
-          .box-number {
-            position: absolute;
-            top: -10px;
-            left: -10px;
-            background: black;
-            color: white;
-            width: 30px;
-            height: 30px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-          }
-          .fcr-container {
-            position: relative;
-          }
-          .copied-indicator {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: #10B981;
-            color: white;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: bold;
-          }
-          @media print {
-            .fcr-box { page-break-inside: avoid; }
-          }
-        </style>
-      </head>
-      <body>
-        <h1>FCR Export Report - ${new Date().toLocaleDateString()}</h1>
-        <p>Generated on: ${new Date().toLocaleString()}</p>
-        <p>Total Boxes: ${filteredData.length}</p>
-        <p>Copied Boxes: ${filteredData.filter(item => copiedBoxes[item.id]).length}</p>
-        <hr style="margin: 30px 0;">
-        
-        ${filteredData.map((item) => `
-          <div class="fcr-container">
-            <div class="fcr-box">
-              <div class="box-number">${item.index}</div>
-              ${copiedBoxes[item.id] ? '<div class="copied-indicator">✓ COPIED</div>' : ''}
-              <div class="box-header">Invoice No.: ${item.invoiceNo}</div>
-              <div class="box-content">${item.formattedText}</div>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>FCR Export - ${projectName} ${projectYear}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-6xl mx-auto">
+        <!-- Header -->
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-8 text-center">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">FCR Export Report</h1>
+            <p class="text-lg text-gray-600">${projectName} - ${projectYear}</p>
+            <p class="text-sm text-gray-500">Generated on: ${new Date().toLocaleString()}</p>
+            
+            <div class="flex justify-center gap-8 mt-4">
+                <div class="text-center">
+                    <div class="text-2xl font-bold text-blue-600">${filteredData.length}</div>
+                    <div class="text-sm text-gray-500">Total Boxes</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-2xl font-bold text-green-600">${copiedCount}</div>
+                    <div class="text-sm text-gray-500">Copied</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-2xl font-bold text-orange-600">${filteredData.length - copiedCount}</div>
+                    <div class="text-sm text-gray-500">Remaining</div>
+                </div>
             </div>
-          </div>
-        `).join('')}
-      </body>
-      </html>
-    `;
+            
+            <div class="w-full bg-gray-200 rounded-full h-2 mt-4">
+                <div class="bg-green-600 h-2 rounded-full transition-all duration-300" style="width: ${((copiedCount / filteredData.length) * 100).toFixed(1)}%"></div>
+            </div>
+            <p class="text-sm text-gray-600 mt-2">Progress: ${((copiedCount / filteredData.length) * 100).toFixed(1)}% Complete</p>
+        </div>
+        
+        <!-- FCR Boxes -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            ${filteredData.map((item) => `
+                <div class="bg-white border-2 ${copiedBoxes[item.id] ? 'border-yellow-400 bg-yellow-50' : 'border-gray-300'} rounded-lg p-6 shadow-lg relative">
+                    <!-- Box Number -->
+                    <div class="absolute -top-3 -left-3 w-8 h-8 bg-gray-800 text-white rounded-full flex items-center justify-center text-sm font-bold">
+                        ${item.index}
+                    </div>
+                    
+                    <!-- Copied Badge -->
+                    ${copiedBoxes[item.id] ? '<div class="absolute -top-2 -right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full font-bold">✓ COPIED</div>' : ''}
+                    
+                    <!-- Header -->
+                    <div class="border-b-2 border-gray-800 pb-2 mb-4">
+                        <h3 class="font-bold text-lg">Invoice No.: ${item.invoiceNo}</h3>
+                    </div>
+                    
+                    <!-- Content -->
+                    <div class="text-sm space-y-1 leading-relaxed whitespace-pre-line font-mono">
+${item.formattedText}
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+        
+        <!-- Footer -->
+        <div class="mt-8 text-center text-gray-500 text-sm">
+            <p>FCR Draft Generator by Mahabubul Alam Arif | GitHub: arif547</p>
+            <p>Export completed at ${new Date().toLocaleString()}</p>
+        </div>
+    </div>
+</body>
+</html>`;
 
-        // Create blob and download
         const blob = new Blob([htmlContent], { type: 'application/msword' });
         const link = document.createElement('a');
         const url = URL.createObjectURL(blob);
         link.setAttribute('href', url);
-        link.setAttribute('download', `FCR_Export_${new Date().toISOString().split('T')[0]}.doc`);
+        link.setAttribute('download', `FCR_${projectName}_${projectYear}_${new Date().toISOString().split('T')[0]}.doc`);
         link.style.visibility = 'hidden';
         document.body.appendChild(link);
         link.click();
@@ -468,37 +431,6 @@ COUNTRY: ${row['Country short code'] || ''}`
 
         addLog('FCR data exported to DOC file successfully!', 'success');
     };
-
-    // Keyboard shortcuts
-    useEffect(() => {
-        const handleKeyDown = (event) => {
-            // Ctrl+K for search
-            if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
-                event.preventDefault();
-                searchInputRef.current?.focus();
-            }
-
-            // Escape to clear search
-            if (event.key === 'Escape') {
-                setSearchTerm('');
-            }
-
-            // Ctrl+S for save
-            if ((event.ctrlKey || event.metaKey) && event.key === 's') {
-                event.preventDefault();
-                updateProject();
-            }
-
-            // Ctrl+Z for undo
-            if ((event.ctrlKey || event.metaKey) && event.key === 'z') {
-                event.preventDefault();
-                undoLastCopy();
-            }
-        };
-
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [currentProject, processedData, copiedBoxes, copyHistory]);
 
     const copiedCount = Object.keys(copiedBoxes).length;
     const totalCount = processedData?.length || 0;
@@ -513,14 +445,14 @@ COUNTRY: ${row['Country short code'] || ''}`
                     onClick={updateProject}
                     disabled={isSaving}
                     className="p-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors disabled:opacity-50"
-                    title="Save to MongoDB (Ctrl+S)"
+                    title="Save to MongoDB"
                 >
                     {isSaving ? <Loader className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
                 </button>
                 <button
                     onClick={undoLastCopy}
                     className="p-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 transition-colors"
-                    title="Undo Last Copy (Ctrl+Z)"
+                    title="Undo Last Copy"
                 >
                     <RotateCcw className="w-4 h-4" />
                 </button>
@@ -544,7 +476,7 @@ COUNTRY: ${row['Country short code'] || ''}`
             {/* Progress indicator */}
             {totalCount > 0 && (
                 <div className="fixed bottom-4 left-4 z-50 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg">
-                    Copied: {copiedCount} / {totalCount}
+                    Progress: {copiedCount} / {totalCount} ({progressPercent.toFixed(1)}%)
                 </div>
             )}
 
@@ -570,7 +502,7 @@ COUNTRY: ${row['Country short code'] || ''}`
                 {/* Project Management Section */}
                 <div className="bg-white rounded-2xl shadow-xl p-6 mb-8">
                     <div className="flex items-center mb-4">
-                        <Cloud className="w-6 h-6 text-blue-600 mr-2" />
+                        <Database className="w-6 h-6 text-blue-600 mr-2" />
                         <h3 className="text-xl font-semibold text-gray-800">Project Management</h3>
                     </div>
 
@@ -585,17 +517,21 @@ COUNTRY: ${row['Country short code'] || ''}`
                                 placeholder="Enter project name..."
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
                             />
+                        </div>
+
+                        {/* Project Year Input */}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Project Year</label>
                             <input
                                 type="number"
                                 value={projectYear}
                                 onChange={(e) => setProjectYear(e.target.value)}
-                                placeholder="Enter project Year..."
+                                placeholder="Enter project year..."
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
                             />
-
                         </div>
 
-                        {/* Save/Update Button */}
+                        {/* Save Button */}
                         <div className="flex items-end">
                             <button
                                 onClick={updateProject}
@@ -620,28 +556,6 @@ COUNTRY: ${row['Country short code'] || ''}`
                                 )}
                             </button>
                         </div>
-
-                        {/* Load Project Dropdown */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Load Saved Project</label>
-                            <select
-                                onChange={(e) => e.target.value && loadProject(e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                                disabled={isLoading}
-                            >
-                                <option value="">Select a project...</option>
-                                {/* {savedProjects.map((project) => (
-                                    <option key={project._id} value={project._id}>
-                                        {project.name} ({new Date(project.updatedAt).toLocaleDateString()})
-                                    </option>
-                                ))} */}
-                                {Array.isArray(savedProjects) && savedProjects.map((project) => (
-                                    <option key={project._id} value={project._id}>
-                                        {project.name} ({new Date(project.updatedAt).toLocaleDateString()})
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
                     </div>
 
                     {currentProject && (
@@ -657,56 +571,16 @@ COUNTRY: ${row['Country short code'] || ''}`
                     )}
                 </div>
 
-                {/* Shortcuts panel */}
-                {showShortcuts && (
-                    <div className="bg-blue-50 rounded-xl p-6 mb-8 relative">
-                        <button
-                            onClick={() => setShowShortcuts(false)}
-                            className="absolute top-2 right-2 text-gray-500 hover:text-gray-700"
-                        >
-                            <X className="w-5 h-5" />
-                        </button>
-                        <h3 className="text-lg font-semibold text-blue-800 mb-4">Keyboard Shortcuts</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            <div className="flex items-center gap-2">
-                                <kbd className="px-2 py-1 bg-gray-200 rounded text-sm">Ctrl+K</kbd>
-                                <span className="text-sm">Search</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <kbd className="px-2 py-1 bg-gray-200 rounded text-sm">Esc</kbd>
-                                <span className="text-sm">Clear Search</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <kbd className="px-2 py-1 bg-gray-200 rounded text-sm">Ctrl+S</kbd>
-                                <span className="text-sm">Save Project</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <kbd className="px-2 py-1 bg-gray-200 rounded text-sm">Ctrl+Z</kbd>
-                                <span className="text-sm">Undo Last Copy</span>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {!showShortcuts && (
-                    <button
-                        onClick={() => setShowShortcuts(true)}
-                        className="fixed top-16 right-4 z-50 bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700"
-                    >
-                        Show Shortcuts
-                    </button>
-                )}
-
                 {/* File upload section */}
                 <div className="bg-white rounded-2xl shadow-xl p-8 mb-8">
                     <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-xl p-6 border-2 border-dashed border-blue-300 hover:border-blue-400 transition-colors">
                         <div className="text-center">
                             <Upload className="w-12 h-12 text-blue-600 mx-auto mb-4" />
                             <h3 className="text-xl font-semibold text-gray-800 mb-2">Upload FCR Data File</h3>
-                            <p className="text-gray-600 mb-4">Upload CSV or Excel file with FCR data</p>
+                            <p className="text-gray-600 mb-4">Upload CSV file with FCR data</p>
                             <input
                                 type="file"
-                                accept=".csv,.xlsx"
+                                accept=".csv"
                                 onChange={handleFileUpload}
                                 className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                             />
@@ -741,19 +615,6 @@ COUNTRY: ${row['Country short code'] || ''}`
                     </div>
                 </div>
 
-                {/* Export button for processed data */}
-                {processedData && (
-                    <div className="text-center mb-8">
-                        <button
-                            onClick={exportToDOC}
-                            className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg transform hover:scale-105 transition-all duration-200 flex items-center mx-auto"
-                        >
-                            <Download className="w-5 h-5 mr-2" />
-                            Export to DOC (Box Format)
-                        </button>
-                    </div>
-                )}
-
                 {/* Search and filter controls */}
                 {processedData && (
                     <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
@@ -763,7 +624,7 @@ COUNTRY: ${row['Country short code'] || ''}`
                                 <input
                                     ref={searchInputRef}
                                     type="text"
-                                    placeholder="Search by Invoice Number (Ctrl+K)"
+                                    placeholder="Search by Invoice Number or Description..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                     className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -793,6 +654,12 @@ COUNTRY: ${row['Country short code'] || ''}`
                                 ))}
                             </div>
                         </div>
+
+                        {filteredData.length > 0 && (
+                            <div className="mt-4 text-sm text-gray-600">
+                                Showing {filteredData.length} of {processedData.length} boxes
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -840,12 +707,8 @@ COUNTRY: ${row['Country short code'] || ''}`
                                 </div>
 
                                 {/* Content */}
-                                <div className="space-y-1 text-sm">
-                                    {item.formattedText.split('\n').map((line, idx) => (
-                                        <div key={idx} className="leading-relaxed">
-                                            {line || <br />}
-                                        </div>
-                                    ))}
+                                <div className="space-y-1 text-sm font-mono leading-relaxed whitespace-pre-line">
+                                    {item.formattedText}
                                 </div>
 
                                 {/* Copy button */}
@@ -908,15 +771,16 @@ COUNTRY: ${row['Country short code'] || ''}`
                         <div className="max-w-2xl mx-auto">
                             <h2 className="text-2xl font-bold text-gray-800 mb-4">How It Works</h2>
                             <div className="text-left space-y-3 text-gray-600">
-                                <p>1. Upload a CSV or Excel file containing FCR data with the required columns</p>
-                                <p>2. Click "Process Data" to format and generate interactive FCR boxes</p>
-                                <p>3. Enter a project name and save your work to MongoDB for future access</p>
-                                <p>4. Click on any box to copy its entire content to clipboard</p>
-                                <p>5. Copied boxes are highlighted in yellow with a checkmark</p>
-                                <p>6. Your progress is automatically saved to MongoDB</p>
-                                <p>7. Use search and filters to find specific invoices</p>
-                                <p>8. Export your data as DOC file with proper box formatting</p>
-                                <p>9. Load previously saved projects from the dropdown menu</p>
+                                <p>1. Upload a CSV file containing FCR data with the required columns</p>
+                                <p>2. Enter project name and year for easy identification</p>
+                                <p>3. Click "Process Data" to format and generate interactive FCR boxes</p>
+                                <p>4. Click "Save Project" to store your work in MongoDB for future access</p>
+                                <p>5. Click on any box to copy its entire content to clipboard</p>
+                                <p>6. Copied boxes are highlighted in yellow with a checkmark</p>
+                                <p>7. Use search and filters to find specific invoices or descriptions</p>
+                                <p>8. Export your data as DOC file with Tailwind CSS styling</p>
+                                <p>9. Your progress is automatically saved to MongoDB</p>
+                                <p>10. Use the toolbar buttons for quick actions: Save, Undo, Reset, Export</p>
                             </div>
                         </div>
                     </div>
