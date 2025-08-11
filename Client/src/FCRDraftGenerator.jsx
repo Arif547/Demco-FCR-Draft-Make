@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Upload, Download, Search, X, RotateCcw, Save, Eye, FileText, AlertCircle, CheckCircle, Loader, Database, Copy, Check } from 'lucide-react';
+import { Upload, Download, Search, X, RotateCcw, Save, Eye, FileText, AlertCircle, CheckCircle, Loader, Database, Copy, Check, Calendar } from 'lucide-react';
 import Papa from 'papaparse';
 
 const FCRDraftGenerator = () => {
@@ -17,10 +17,11 @@ const FCRDraftGenerator = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [savedProjects, setSavedProjects] = useState([]);
     const [currentProject, setCurrentProject] = useState(null);
+    const [notification, setNotification] = useState(null);
     const searchInputRef = useRef(null);
 
     // API endpoints - adjust these to match your backend URL
-    const API_BASE = 'http://localhost:5000/api';
+    const API_BASE = 'https://demco-fcr-server.vercel.app/api';
 
     // Required columns for FCR data
     const requiredColumns = [
@@ -28,6 +29,17 @@ const FCRDraftGenerator = () => {
         'Description', 'PO Numbers', 'Invoice No', 'AD Code', 'EXP Year',
         'Lc Contact', 'Country short code', 'Goods'
     ];
+
+    // Notification system (SweetAlert-like)
+    const showNotification = (message, type = 'info', duration = 5000) => {
+        const id = Date.now();
+        const newNotification = { id, message, type };
+        setNotification(newNotification);
+
+        setTimeout(() => {
+            setNotification(null);
+        }, duration);
+    };
 
     const addLog = useCallback((message, type = 'info') => {
         const timestamp = new Date().toLocaleTimeString();
@@ -81,6 +93,7 @@ const FCRDraftGenerator = () => {
             }
         } catch (error) {
             addLog('Failed to load saved projects', 'error');
+            showNotification('Failed to load saved projects', 'error');
         } finally {
             setIsLoading(false);
         }
@@ -89,7 +102,9 @@ const FCRDraftGenerator = () => {
     // Save project to MongoDB
     const saveProjectToMongoDB = async () => {
         if (!processedData || !projectName.trim()) {
-            addLog('Please enter a project name and process data first', 'error');
+            const errorMsg = 'Please enter a project name and process data first';
+            addLog(errorMsg, 'error');
+            showNotification(errorMsg, 'error');
             return;
         }
 
@@ -97,7 +112,7 @@ const FCRDraftGenerator = () => {
             setIsSaving(true);
             const projectData = {
                 name: projectName.trim(),
-                year: projectYear,
+                year: parseInt(projectYear), // Ensure year is saved as number
                 processedData,
                 copiedBoxes,
                 createdAt: new Date(),
@@ -115,13 +130,18 @@ const FCRDraftGenerator = () => {
             if (response.ok) {
                 const savedProject = await response.json();
                 setCurrentProject(savedProject);
-                addLog(`Project "${projectName}" saved successfully!`, 'success');
+                const successMsg = `Project "${projectName}" (${projectYear}) saved successfully!`;
+                addLog(successMsg, 'success');
+                showNotification(successMsg, 'success');
                 loadProjects(); // Refresh the projects list
             } else {
-                throw new Error('Failed to save project');
+                const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                throw new Error(errorData.error || 'Failed to save project');
             }
         } catch (error) {
-            addLog(`Failed to save project: ${error.message}`, 'error');
+            const errorMsg = `Failed to save project: ${error.message}`;
+            addLog(errorMsg, 'error');
+            showNotification(errorMsg, 'error');
         } finally {
             setIsSaving(false);
         }
@@ -137,6 +157,8 @@ const FCRDraftGenerator = () => {
         try {
             setIsSaving(true);
             const updateData = {
+                name: projectName.trim(),
+                year: parseInt(projectYear), // Ensure year is saved as number
                 processedData,
                 copiedBoxes,
                 updatedAt: new Date()
@@ -151,12 +173,20 @@ const FCRDraftGenerator = () => {
             });
 
             if (response.ok) {
-                addLog('Project updated successfully!', 'success');
+                const updatedProject = await response.json();
+                setCurrentProject(updatedProject);
+                const successMsg = `Project "${projectName}" (${projectYear}) updated successfully!`;
+                addLog(successMsg, 'success');
+                showNotification(successMsg, 'success');
+                loadProjects(); // Refresh the projects list
             } else {
-                throw new Error('Failed to update project');
+                const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                throw new Error(errorData.error || 'Failed to update project');
             }
         } catch (error) {
-            addLog(`Failed to update project: ${error.message}`, 'error');
+            const errorMsg = `Failed to update project: ${error.message}`;
+            addLog(errorMsg, 'error');
+            showNotification(errorMsg, 'error');
         } finally {
             setIsSaving(false);
         }
@@ -195,6 +225,7 @@ const FCRDraftGenerator = () => {
                         }
 
                         addLog(`Successfully loaded ${results.data.length} records`);
+                        showNotification(`Successfully loaded ${results.data.length} records`, 'success');
                         setInputData(results.data);
 
                         // Auto-set project name from filename if not already set
@@ -205,21 +236,28 @@ const FCRDraftGenerator = () => {
 
                     } catch (error) {
                         addLog(`Error: ${error.message}`, 'error');
+                        showNotification(`Error: ${error.message}`, 'error');
                     }
                 },
                 error: (error) => {
-                    addLog(`Failed to parse file: ${error.message}`, 'error');
+                    const errorMsg = `Failed to parse file: ${error.message}`;
+                    addLog(errorMsg, 'error');
+                    showNotification(errorMsg, 'error');
                 }
             });
 
         } catch (error) {
-            addLog(`Error loading file: ${error.message}`, 'error');
+            const errorMsg = `Error loading file: ${error.message}`;
+            addLog(errorMsg, 'error');
+            showNotification(errorMsg, 'error');
         }
     };
 
     const processData = () => {
         if (!inputData) {
-            addLog('Please upload a data file first', 'error');
+            const errorMsg = 'Please upload a data file first';
+            addLog(errorMsg, 'error');
+            showNotification(errorMsg, 'error');
             return;
         }
 
@@ -268,11 +306,15 @@ COUNTRY: ${row['Country short code'] || ''}`
             });
 
             setProcessedData(processed);
-            addLog(`Successfully processed ${processed.length} records`, 'success');
+            const successMsg = `Successfully processed ${processed.length} records`;
+            addLog(successMsg, 'success');
+            showNotification(successMsg, 'success');
             addLog('Processing completed successfully', 'success');
 
         } catch (error) {
-            addLog(`Processing failed: ${error.message}`, 'error');
+            const errorMsg = `Processing failed: ${error.message}`;
+            addLog(errorMsg, 'error');
+            showNotification(errorMsg, 'error');
         } finally {
             setIsProcessing(false);
         }
@@ -284,8 +326,11 @@ COUNTRY: ${row['Country short code'] || ''}`
             setCopiedBoxes(prev => ({ ...prev, [boxId]: true }));
             setLastCopiedBoxId(boxId);
             addLog('Box content copied to clipboard!', 'success');
+            showNotification('Content copied to clipboard!', 'success', 2000);
         } catch (error) {
-            addLog('Failed to copy to clipboard', 'error');
+            const errorMsg = 'Failed to copy to clipboard';
+            addLog(errorMsg, 'error');
+            showNotification(errorMsg, 'error');
         }
     };
 
@@ -301,14 +346,18 @@ COUNTRY: ${row['Country short code'] || ''}`
         }
 
         addLog('Copied status removed!', 'success');
+        showNotification('Copied status removed!', 'success', 2000);
     };
 
     const undoLastCopy = () => {
         if (lastCopiedBoxId && copiedBoxes[lastCopiedBoxId]) {
             undoCopy(lastCopiedBoxId);
             addLog('Last copy action undone!', 'success');
+            showNotification('Last copy action undone!', 'success', 2000);
         } else {
-            addLog('No recent copy action to undo!', 'error');
+            const errorMsg = 'No recent copy action to undo!';
+            addLog(errorMsg, 'error');
+            showNotification(errorMsg, 'error');
         }
     };
 
@@ -316,6 +365,7 @@ COUNTRY: ${row['Country short code'] || ''}`
         setCopiedBoxes({});
         setLastCopiedBoxId(null);
         addLog('All copied status has been reset!', 'success');
+        showNotification('All copied status has been reset!', 'success');
     };
 
     const getFilteredData = () => {
@@ -341,95 +391,271 @@ COUNTRY: ${row['Country short code'] || ''}`
         return filtered;
     };
 
-    // Export to DOC with simple format using Tailwind classes
+    // Improved Export to DOC with better formatting
     const exportToDOC = () => {
         if (!processedData) return;
 
         const filteredData = getFilteredData();
         const copiedCount = filteredData.filter(item => copiedBoxes[item.id]).length;
 
-        const htmlContent = `
-<!DOCTYPE html>
-<html>
+        const htmlContent = `<!DOCTYPE html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FCR Export - ${projectName} ${projectYear}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f8f9fa;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .header h1 {
+            color: #2563eb;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #6b7280;
+            font-size: 1.1rem;
+            margin-bottom: 5px;
+        }
+        
+        .stats {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin: 20px 0;
+        }
+        
+        .stat-item {
+            text-align: center;
+        }
+        
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #059669;
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            color: #6b7280;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 12px;
+            background: #e5e7eb;
+            border-radius: 6px;
+            overflow: hidden;
+            margin: 20px 0;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #10b981, #059669);
+            transition: width 0.3s ease;
+        }
+        
+        .boxes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }
+        
+        .fcr-box {
+            background: white;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 25px;
+            position: relative;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+        }
+        
+        .fcr-box.copied {
+            border-color: #fbbf24;
+            background: #fffbeb;
+        }
+        
+        .box-number {
+            position: absolute;
+            top: -12px;
+            left: -12px;
+            width: 32px;
+            height: 32px;
+            background: #1f2937;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+        
+        .copied-badge {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #10b981;
+            color: white;
+            font-size: 0.75rem;
+            font-weight: bold;
+            padding: 4px 8px;
+            border-radius: 12px;
+        }
+        
+        .box-header {
+            border-bottom: 2px solid #1f2937;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .box-header h3 {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        
+        .box-content {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            white-space: pre-line;
+            color: #374151;
+        }
+        
+        .footer {
+            margin-top: 40px;
+            text-align: center;
+            color: #6b7280;
+            font-size: 0.9rem;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            
+            .fcr-box {
+                page-break-inside: avoid;
+                margin-bottom: 20px;
+            }
+            
+            .header {
+                page-break-after: avoid;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .stats {
+                flex-direction: column;
+                gap: 20px;
+            }
+            
+            .boxes-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
-<body class="bg-gray-100 p-8">
-    <div class="max-w-6xl mx-auto">
-        <!-- Header -->
-        <div class="bg-white rounded-lg shadow-lg p-6 mb-8 text-center">
-            <h1 class="text-3xl font-bold text-gray-800 mb-2">FCR Export Report</h1>
-            <p class="text-lg text-gray-600">${projectName} - ${projectYear}</p>
-            <p class="text-sm text-gray-500">Generated on: ${new Date().toLocaleString()}</p>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>FCR Export Report</h1>
+            <p><strong>${projectName} - ${projectYear}</strong></p>
+            <p>Generated on: ${new Date().toLocaleString()}</p>
             
-            <div class="flex justify-center gap-8 mt-4">
-                <div class="text-center">
-                    <div class="text-2xl font-bold text-blue-600">${filteredData.length}</div>
-                    <div class="text-sm text-gray-500">Total Boxes</div>
+            <div class="stats">
+                <div class="stat-item">
+                    <div class="stat-number">${filteredData.length}</div>
+                    <div class="stat-label">Total Boxes</div>
                 </div>
-                <div class="text-center">
-                    <div class="text-2xl font-bold text-green-600">${copiedCount}</div>
-                    <div class="text-sm text-gray-500">Copied</div>
+                <div class="stat-item">
+                    <div class="stat-number">${copiedCount}</div>
+                    <div class="stat-label">Completed</div>
                 </div>
-                <div class="text-center">
-                    <div class="text-2xl font-bold text-orange-600">${filteredData.length - copiedCount}</div>
-                    <div class="text-sm text-gray-500">Remaining</div>
+                <div class="stat-item">
+                    <div class="stat-number">${filteredData.length - copiedCount}</div>
+                    <div class="stat-label">Remaining</div>
                 </div>
             </div>
             
-            <div class="w-full bg-gray-200 rounded-full h-2 mt-4">
-                <div class="bg-green-600 h-2 rounded-full transition-all duration-300" style="width: ${((copiedCount / filteredData.length) * 100).toFixed(1)}%"></div>
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: ${((copiedCount / filteredData.length) * 100).toFixed(1)}%"></div>
             </div>
-            <p class="text-sm text-gray-600 mt-2">Progress: ${((copiedCount / filteredData.length) * 100).toFixed(1)}% Complete</p>
+            <p><strong>Progress: ${((copiedCount / filteredData.length) * 100).toFixed(1)}% Complete</strong></p>
         </div>
         
-        <!-- FCR Boxes -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div class="boxes-grid">
             ${filteredData.map((item) => `
-                <div class="bg-white border-2 ${copiedBoxes[item.id] ? 'border-yellow-400 bg-yellow-50' : 'border-gray-300'} rounded-lg p-6 shadow-lg relative">
-                    <!-- Box Number -->
-                    <div class="absolute -top-3 -left-3 w-8 h-8 bg-gray-800 text-white rounded-full flex items-center justify-center text-sm font-bold">
-                        ${item.index}
+                <div class="fcr-box ${copiedBoxes[item.id] ? 'copied' : ''}">
+                    <div class="box-number">${item.index}</div>
+                    ${copiedBoxes[item.id] ? '<div class="copied-badge">✓ COMPLETED</div>' : ''}
+                    
+                    <div class="box-header">
+                        <h3>Invoice No.: ${item.invoiceNo}</h3>
                     </div>
                     
-                    <!-- Copied Badge -->
-                    ${copiedBoxes[item.id] ? '<div class="absolute -top-2 -right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full font-bold">✓ COPIED</div>' : ''}
-                    
-                    <!-- Header -->
-                    <div class="border-b-2 border-gray-800 pb-2 mb-4">
-                        <h3 class="font-bold text-lg">Invoice No.: ${item.invoiceNo}</h3>
-                    </div>
-                    
-                    <!-- Content -->
-                    <div class="text-sm space-y-1 leading-relaxed whitespace-pre-line font-mono">
-${item.formattedText}
-                    </div>
+                    <div class="box-content">${item.formattedText}</div>
                 </div>
             `).join('')}
         </div>
         
-        <!-- Footer -->
-        <div class="mt-8 text-center text-gray-500 text-sm">
-            <p>FCR Draft Generator by Mahabubul Alam Arif | GitHub: arif547</p>
+        <div class="footer">
+            <p><strong>FCR Draft Generator</strong> by Mahabubul Alam Arif | GitHub: arif547</p>
             <p>Export completed at ${new Date().toLocaleString()}</p>
+            <p>Total Records: ${filteredData.length} | Completed: ${copiedCount} | Progress: ${((copiedCount / filteredData.length) * 100).toFixed(1)}%</p>
         </div>
     </div>
 </body>
 </html>`;
 
-        const blob = new Blob([htmlContent], { type: 'application/msword' });
+        const blob = new Blob([htmlContent], {
+            type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        });
         const link = document.createElement('a');
         const url = URL.createObjectURL(blob);
         link.setAttribute('href', url);
-        link.setAttribute('download', `FCR_${projectName}_${projectYear}_${new Date().toISOString().split('T')[0]}.doc`);
+        link.setAttribute('download', `FCR_${projectName.replace(/[^a-z0-9]/gi, '_')}_${projectYear}_${new Date().toISOString().split('T')[0]}.doc`);
         link.style.visibility = 'hidden';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        URL.revokeObjectURL(url);
 
         addLog('FCR data exported to DOC file successfully!', 'success');
+        showNotification('FCR data exported successfully!', 'success');
     };
 
     const copiedCount = Object.keys(copiedBoxes).length;
@@ -439,8 +665,27 @@ ${item.formattedText}
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+            {/* Notification System */}
+            {notification && (
+                <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 z-50 px-6 py-4 rounded-lg shadow-lg border-l-4 ${notification.type === 'success' ? 'bg-green-50 border-green-500 text-green-800' :
+                    notification.type === 'error' ? 'bg-red-50 border-red-500 text-red-800' :
+                        'bg-blue-50 border-blue-500 text-blue-800'
+                    } flex items-center space-x-2 min-w-80 max-w-md`}>
+                    {notification.type === 'success' && <CheckCircle className="w-5 h-5 text-green-500" />}
+                    {notification.type === 'error' && <AlertCircle className="w-5 h-5 text-red-500" />}
+                    {notification.type === 'info' && <FileText className="w-5 h-5 text-blue-500" />}
+                    <span className="font-medium">{notification.message}</span>
+                    <button
+                        onClick={() => setNotification(null)}
+                        className="ml-2 text-gray-400 hover:text-gray-600"
+                    >
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+            )}
+
             {/* Fixed toolbar */}
-            <div className="fixed top-4 right-4 z-50 bg-white rounded-lg shadow-lg p-3 flex gap-2">
+            <div className="fixed top-4 right-4 z-40 bg-white rounded-lg shadow-lg p-3 flex gap-2">
                 <button
                     onClick={updateProject}
                     disabled={isSaving}
@@ -475,13 +720,13 @@ ${item.formattedText}
 
             {/* Progress indicator */}
             {totalCount > 0 && (
-                <div className="fixed bottom-4 left-4 z-50 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg">
+                <div className="fixed bottom-4 left-4 z-40 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg">
                     Progress: {copiedCount} / {totalCount} ({progressPercent.toFixed(1)}%)
                 </div>
             )}
 
             {/* Progress bar */}
-            <div className="fixed bottom-0 left-0 w-full h-1 bg-gray-200">
+            <div className="fixed bottom-0 left-0 w-full h-1 bg-gray-200 z-30">
                 <div
                     className="h-full bg-green-500 transition-all duration-300"
                     style={{ width: `${progressPercent}%` }}
@@ -521,12 +766,17 @@ ${item.formattedText}
 
                         {/* Project Year Input */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Project Year</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                <Calendar className="w-4 h-4 inline mr-1" />
+                                Project Year
+                            </label>
                             <input
                                 type="number"
                                 value={projectYear}
                                 onChange={(e) => setProjectYear(e.target.value)}
                                 placeholder="Enter project year..."
+                                min="2000"
+                                max="2099"
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
                             />
                         </div>
@@ -562,11 +812,46 @@ ${item.formattedText}
                         <div className="mt-4 p-3 bg-green-50 rounded-lg">
                             <p className="text-sm text-green-800">
                                 <CheckCircle className="w-4 h-4 inline mr-1" />
-                                Currently working on: <strong>{currentProject.name}</strong>
+                                Currently working on: <strong>{currentProject.name} ({currentProject.year})</strong>
                                 <span className="ml-2 text-green-600">
                                     (Last updated: {new Date(currentProject.updatedAt).toLocaleString()})
                                 </span>
                             </p>
+                        </div>
+                    )}
+
+                    {/* Saved Projects List */}
+                    {savedProjects.length > 0 && (
+                        <div className="mt-6">
+                            <h4 className="text-lg font-medium text-gray-700 mb-3">Recent Projects</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-40 overflow-y-auto">
+                                {savedProjects
+                                    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+                                    .slice(0, 6)
+                                    .map((project) => (
+                                        <div
+                                            key={project._id}
+                                            className={`p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors ${currentProject?._id === project._id ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+                                                }`}
+                                            onClick={() => {
+                                                setCurrentProject(project);
+                                                setProjectName(project.name);
+                                                setProjectYear(project.year.toString());
+                                                if (project.processedData) {
+                                                    setProcessedData(project.processedData);
+                                                    setCopiedBoxes(project.copiedBoxes || {});
+                                                    showNotification(`Loaded project: ${project.name} (${project.year})`, 'success');
+                                                }
+                                            }}
+                                        >
+                                            <p className="font-medium text-sm text-gray-800">{project.name}</p>
+                                            <p className="text-xs text-gray-500">Year: {project.year}</p>
+                                            <p className="text-xs text-gray-400">
+                                                {new Date(project.updatedAt).toLocaleDateString()}
+                                            </p>
+                                        </div>
+                                    ))}
+                            </div>
                         </div>
                     )}
                 </div>
@@ -778,9 +1063,11 @@ ${item.formattedText}
                                 <p>5. Click on any box to copy its entire content to clipboard</p>
                                 <p>6. Copied boxes are highlighted in yellow with a checkmark</p>
                                 <p>7. Use search and filters to find specific invoices or descriptions</p>
-                                <p>8. Export your data as DOC file with Tailwind CSS styling</p>
-                                <p>9. Your progress is automatically saved to MongoDB</p>
+                                <p>8. Export your data as DOC file with professional styling</p>
+                                <p>9. Your progress is automatically saved to MongoDB with project year</p>
                                 <p>10. Use the toolbar buttons for quick actions: Save, Undo, Reset, Export</p>
+                                <p>11. Load previous projects from the Recent Projects section</p>
+                                <p>12. Get instant feedback with SweetAlert-style notifications</p>
                             </div>
                         </div>
                     </div>

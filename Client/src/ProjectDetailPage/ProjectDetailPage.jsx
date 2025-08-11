@@ -14,7 +14,7 @@ const ProjectDetailPage = () => {
     };
 
     const projectId = getProjectIdFromUrl();
-    const API_BASE = 'http://localhost:5000/api';
+    const API_BASE = 'https://demco-fcr-server.vercel.app/api';
 
     // Load project data
     useEffect(() => {
@@ -227,8 +227,8 @@ const ProjectDetailPage = () => {
                             <div
                                 key={item.id}
                                 className={`relative bg-white border-2 rounded-xl p-6 shadow-lg hover:shadow-xl transition-all duration-200 ${copiedBoxes[item.id]
-                                        ? 'border-green-400 bg-green-50'
-                                        : 'border-gray-300 hover:border-blue-400'
+                                    ? 'border-green-400 bg-green-50'
+                                    : 'border-gray-300 hover:border-blue-400'
                                     }`}
                             >
                                 {/* Box number */}
@@ -275,8 +275,8 @@ const ProjectDetailPage = () => {
                                 <button
                                     onClick={() => copyToClipboard(item.id, item.formattedText)}
                                     className={`w-full py-2 px-4 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${copiedBoxes[item.id]
-                                            ? 'bg-green-600 text-white hover:bg-green-700'
-                                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                                        ? 'bg-green-600 text-white hover:bg-green-700'
+                                        : 'bg-blue-600 text-white hover:bg-blue-700'
                                         }`}
                                 >
                                     {copiedBoxes[item.id] ? (
