@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { Upload, Download, FileText, AlertCircle, CheckCircle, Loader } from 'lucide-react';
 import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
 
 // Constants
 const PO_HEADERS = ['Invoice', 'PO', 'Goods'];
@@ -43,6 +44,66 @@ const PoProcessor = () => {
         }
     };
 
+    const parseExcelFile = (file, expectedHeaders, fileName) => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+
+                    // Get the first worksheet
+                    const worksheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[worksheetName];
+
+                    // Convert to JSON with header row
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+                        header: 1,
+                        defval: '',
+                        blankrows: false
+                    });
+
+                    if (jsonData.length === 0) {
+                        throw new Error(`No data found in ${fileName}. Please check the file format.`);
+                    }
+
+                    // Extract headers and data
+                    const headers = jsonData[0];
+                    const dataRows = jsonData.slice(1);
+
+                    if (!headers || headers.length === 0) {
+                        throw new Error(`No headers found in ${fileName}. Please ensure the file has a header row.`);
+                    }
+
+                    // Validate headers
+                    validateHeaders(headers, expectedHeaders, fileName);
+
+                    // Convert to object format like Papa Parse
+                    const objectData = dataRows
+                        .filter(row => row.some(cell => cell !== '')) // Skip empty rows
+                        .map(row => {
+                            const obj = {};
+                            headers.forEach((header, index) => {
+                                obj[header] = row[index] || '';
+                            });
+                            return obj;
+                        });
+
+                    addLog(`Successfully read ${objectData.length} rows from ${fileName} (Excel)`);
+                    resolve(objectData);
+                } catch (error) {
+                    reject(new Error(`Failed to parse Excel file ${fileName}: ${error.message}`));
+                }
+            };
+
+            reader.onerror = () => {
+                reject(new Error(`Failed to read file ${fileName}`));
+            };
+
+            reader.readAsArrayBuffer(file);
+        });
+    };
+
     const parseCSVFile = (file, expectedHeaders, fileName) => {
         return new Promise((resolve, reject) => {
             Papa.parse(file, {
@@ -75,7 +136,7 @@ const PoProcessor = () => {
                         addLog(`Detected delimiter: '${results.meta.delimiter}' in ${fileName}`);
                         validateHeaders(headers, expectedHeaders, fileName);
 
-                        addLog(`Successfully read ${results.data.length} rows from ${fileName}`);
+                        addLog(`Successfully read ${results.data.length} rows from ${fileName} (CSV)`);
                         resolve(results.data);
                     } catch (error) {
                         reject(error);
@@ -88,6 +149,10 @@ const PoProcessor = () => {
         });
     };
 
+    const getFileExtension = (fileName) => {
+        return fileName.split('.').pop().toLowerCase();
+    };
+
     const handleFileUpload = async (event, fileType) => {
         const file = event.target.files[0];
         if (!file) return;
@@ -96,13 +161,30 @@ const PoProcessor = () => {
             clearLogs();
             addLog(`Reading file: ${file.name}`);
 
+            const fileExtension = getFileExtension(file.name);
             let data;
+
+            // Determine file type and parse accordingly
+            if (fileExtension === 'csv') {
+                if (fileType === 'po') {
+                    data = await parseCSVFile(file, PO_HEADERS, file.name);
+                } else if (fileType === 'recycled') {
+                    data = await parseCSVFile(file, RECYCLED_HEADERS, file.name);
+                }
+            } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
+                if (fileType === 'po') {
+                    data = await parseExcelFile(file, PO_HEADERS, file.name);
+                } else if (fileType === 'recycled') {
+                    data = await parseExcelFile(file, RECYCLED_HEADERS, file.name);
+                }
+            } else {
+                throw new Error(`Unsupported file format: ${fileExtension}. Please upload CSV, XLSX, or XLS files.`);
+            }
+
             if (fileType === 'po') {
-                data = await parseCSVFile(file, PO_HEADERS, file.name);
                 setPOData(data);
                 addLog(`PO data loaded: ${data.length} records`);
             } else if (fileType === 'recycled') {
-                data = await parseCSVFile(file, RECYCLED_HEADERS, file.name);
                 setRecycledPOsData(data);
                 addLog(`Recycled POs data loaded: ${data.length} records`);
             }
@@ -118,9 +200,9 @@ const PoProcessor = () => {
         const invoiceGoodsMap = {};
 
         poData.forEach(row => {
-            const invoice = row.Invoice?.trim();
-            const po = row.PO?.trim();
-            const goods = row.Goods?.trim();
+            const invoice = row.Invoice?.toString().trim();
+            const po = row.PO?.toString().trim();
+            const goods = row.Goods?.toString().trim();
 
             if (invoice) {
                 if (!invoicePOMap[invoice]) {
@@ -178,7 +260,7 @@ const PoProcessor = () => {
             // Extract recycled PO numbers
             const recycledPOsSet = new Set(
                 recycledPOsData
-                    .map(row => row.PO?.trim())
+                    .map(row => row.PO?.toString().trim())
                     .filter(po => po)
             );
             addLog(`Found ${recycledPOsSet.size} recycled PO numbers`);
@@ -230,6 +312,20 @@ const PoProcessor = () => {
         document.body.removeChild(link);
     };
 
+    const downloadExcel = () => {
+        if (!processedData) return;
+
+        // Create workbook and worksheet
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(processedData, { header: OUTPUT_HEADERS });
+
+        // Add the worksheet to the workbook
+        XLSX.utils.book_append_sheet(wb, ws, 'Processed Data');
+
+        // Generate Excel file and trigger download
+        XLSX.writeFile(wb, `output_${new Date().toISOString().split('T')[0]}.xlsx`);
+    };
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
             <div className="max-w-6xl mx-auto">
@@ -239,7 +335,7 @@ const PoProcessor = () => {
                             <FileText className="w-12 h-12 text-indigo-600 mr-3" />
                             <h1 className="text-4xl font-bold text-gray-800">PO Data Processor</h1>
                         </div>
-                        <p className="text-lg text-gray-600">Upload your CSV files to process purchase order data and generate reports</p>
+                        <p className="text-lg text-gray-600">Upload your CSV or Excel files to process purchase order data and generate reports</p>
                     </div>
 
                     <div className="grid md:grid-cols-2 gap-8 mb-8">
@@ -248,13 +344,14 @@ const PoProcessor = () => {
                             <div className="text-center">
                                 <Upload className="w-12 h-12 text-blue-600 mx-auto mb-4" />
                                 <h3 className="text-xl font-semibold text-gray-800 mb-2">PO Data File</h3>
-                                <p className="text-gray-600 mb-4">Upload CSV with columns: Invoice, PO, Goods</p>
+                                <p className="text-gray-600 mb-4">Upload CSV/Excel with columns: Invoice, PO, Goods</p>
                                 <input
                                     type="file"
-                                    accept=".csv"
+                                    accept=".csv,.xlsx,.xls"
                                     onChange={(e) => handleFileUpload(e, 'po')}
                                     className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                                 />
+                                <p className="text-xs text-gray-500 mt-2">Supports: CSV, XLSX, XLS</p>
                                 {poData && (
                                     <div className="mt-3 flex items-center justify-center text-green-600">
                                         <CheckCircle className="w-5 h-5 mr-2" />
@@ -269,13 +366,14 @@ const PoProcessor = () => {
                             <div className="text-center">
                                 <Upload className="w-12 h-12 text-green-600 mx-auto mb-4" />
                                 <h3 className="text-xl font-semibold text-gray-800 mb-2">Recycled POs File</h3>
-                                <p className="text-gray-600 mb-4">Upload CSV with column: PO</p>
+                                <p className="text-gray-600 mb-4">Upload CSV/Excel with column: PO</p>
                                 <input
                                     type="file"
-                                    accept=".csv"
+                                    accept=".csv,.xlsx,.xls"
                                     onChange={(e) => handleFileUpload(e, 'recycled')}
                                     className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
                                 />
+                                <p className="text-xs text-gray-500 mt-2">Supports: CSV, XLSX, XLS</p>
                                 {recycledPOsData && (
                                     <div className="mt-3 flex items-center justify-center text-green-600">
                                         <CheckCircle className="w-5 h-5 mr-2" />
@@ -307,16 +405,25 @@ const PoProcessor = () => {
                         </button>
                     </div>
 
-                    {/* Download Button */}
+                    {/* Download Buttons */}
                     {processedData && (
                         <div className="text-center mb-8">
-                            <button
-                                onClick={downloadCSV}
-                                className="bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg transform hover:scale-105 transition-all duration-200 flex items-center mx-auto"
-                            >
-                                <Download className="w-5 h-5 mr-2" />
-                                Download Processed CSV
-                            </button>
+                            <div className="flex flex-wrap justify-center gap-4">
+                                <button
+                                    onClick={downloadCSV}
+                                    className="bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg transform hover:scale-105 transition-all duration-200 flex items-center"
+                                >
+                                    <Download className="w-5 h-5 mr-2" />
+                                    Download as CSV
+                                </button>
+                                <button
+                                    onClick={downloadExcel}
+                                    className="bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg transform hover:scale-105 transition-all duration-200 flex items-center"
+                                >
+                                    <Download className="w-5 h-5 mr-2" />
+                                    Download as Excel
+                                </button>
+                            </div>
                         </div>
                     )}
 
@@ -337,12 +444,12 @@ const PoProcessor = () => {
                                     <div
                                         key={index}
                                         className={`flex items-center text-sm p-2 rounded ${log.type === 'error'
-                                                ? 'bg-red-100 text-red-800'
-                                                : log.type === 'success'
-                                                    ? 'bg-green-100 text-green-800'
-                                                    : log.type === 'warning'
-                                                        ? 'bg-yellow-100 text-yellow-800'
-                                                        : 'bg-blue-100 text-blue-800'
+                                            ? 'bg-red-100 text-red-800'
+                                            : log.type === 'success'
+                                                ? 'bg-green-100 text-green-800'
+                                                : log.type === 'warning'
+                                                    ? 'bg-yellow-100 text-yellow-800'
+                                                    : 'bg-blue-100 text-blue-800'
                                             }`}
                                     >
                                         {log.type === 'error' ? (
